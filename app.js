@@ -1,4 +1,4 @@
-import { initStore, parseConfig, saveLocalConfig, clearLocalConfig, readLocalConfig } from './store.js';
+import { openLocalDb } from './store.js';
 
 (function(){
 'use strict';
@@ -240,15 +240,19 @@ function renderList(){
   const el = $('#list');
   $('#listSearchBox').hidden = !(S.has.items && S.items.size > 0);
   if (S.dbStatus === 'none'){
-    el.innerHTML = emptyHTML('الكشكول مقفول', 'سجّل دخول بحساب جوجل، وهتلاقي النواقص بتاعتك هنا.');
+    el.innerHTML = emptyHTML('الكشكول مقفول', 'افتح الأبلكيشن تاني.');
     return;
   }
   if (!S.has.items){
     el.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="tail"></div>';
     return;
   }
+  if (!S.items.size && !S.catalog.size){
+    el.innerHTML = '<div class="empty"><h2>أهلاً بيك</h2><p>لو معاك ملف بيانات من البرنامج القديم أو نسخة احتياطية، استورده عشان ترجع أصنافك ونواقصك. أو ابدأ على طول واكتب أول صنف ناقص فوق.</p><p style="margin-top:14px"><button type="button" class="btn" data-import>استيراد ملف بيانات</button></p></div>';
+    return;
+  }
   if (!S.items.size){
-    el.innerHTML = emptyHTML('مفيش نواقص دلوقتي', 'أول ما صنف يخلص، اكتبه فوق واضغط «ضيف»، أو دوس على زرار المايك وقول كذا صنف مرة واحدة. ولما يوصل، علّم على المربع اللي جنبه يتشال.');
+    el.innerHTML = emptyHTML('مفيش نواقص دلوقتي', 'أول ما صنف يخلص، اكتبه فوق واضغط «ضيف». ولما يوصل، علّم على المربع اللي جنبه يتشال.');
     return;
   }
   const toks = norm(S.listQuery).split(' ').filter(Boolean);
@@ -264,7 +268,7 @@ function renderList(){
 }
 function renderDb(){
   const box = $('#dbList'), fb = $('#dbFilters');
-  if (S.dbStatus === 'none'){ fb.innerHTML = ''; box.innerHTML = '<div class="page">' + emptyHTML('الكشكول مقفول', 'سجّل دخول بحساب جوجل.') + '</div>'; return; }
+  if (S.dbStatus === 'none'){ fb.innerHTML = ''; box.innerHTML = '<div class="page">' + emptyHTML('الكشكول مقفول', 'افتح الأبلكيشن تاني.') + '</div>'; return; }
   if (!S.has.catalog){ fb.innerHTML = ''; box.innerHTML = '<div class="page"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>'; return; }
   const all = [...S.catalog.values()];
   const counts = {all: all.length, none: 0}; CENTERS.forEach(c => { counts[c.id] = 0; });
@@ -390,7 +394,7 @@ $('#addForm').addEventListener('submit', e => {
   e.preventDefault();
   const name = cleanText(nameInput.value);
   if (!name){ nameInput.focus(); toast('اكتب اسم الصنف الأول'); return; }
-  if (!S.db){ toast(S.dbStatus === 'connecting' ? 'لسه بفتح البيانات، ثانية واحدة وجرب تاني.' : 'سجّل دخول بحساب جوجل الأول.'); return; }
+  if (!S.db){ toast(S.dbStatus === 'connecting' ? 'لسه بفتح البيانات، ثانية واحدة وجرب تاني.' : 'لسه بفتح البيانات، ثانية واحدة وجرب تاني.'); return; }
   requestAdd(name, null, cleanText(noteInput.value), () => { resetForm(); nameInput.focus(); });
 });
 
@@ -428,156 +432,6 @@ function addItem(name, qty, note, quiet, center){
   if (!quiet) render();
 }
 
-/* ---------- say several items at once ---------- */
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const COLOR_WORDS = ['ازرق','اسود','احمر','اخضر','اصفر','ابيض','بني','رمادي','روز','بينك','بنفسجي','موف','برتقالي','لبني','فضي','دهبي','ذهبي','سيلفر','جولد','كحلي','زيتي','فوشيا','نبيتي','سماوي','تركواز','شفاف','ملون','كافيه','بيج','زهري','لموني','فسفوري'];
-const COLOR_FIX = {'ازرق':'أزرق','اسود':'أسود','احمر':'أحمر','اخضر':'أخضر','اصفر':'أصفر','ابيض':'أبيض'};
-const NUM_WORDS = {'واحد':1,'اتنين':2,'اثنين':2,'تلاته':3,'ثلاثه':3,'اربعه':4,'خمسه':5,'سته':6,'سبعه':7,'تمانيه':8,'ثمانيه':8,'تسعه':9,'عشره':10,'حداشر':11,'اتناشر':12,'خمستاشر':15,'عشرين':20,'تلاتين':30,'ثلاثين':30,'اربعين':40,'خمسين':50,'ستين':60,'سبعين':70,'تمانين':80,'ثمانين':80,'تسعين':90,'ميه':100,'مايه':100,'مائه':100,'ميتين':200,'مائتين':200};
-const FILLERS = ['ناقص عندي','عندي ناقص','ناقصني','ناقص','عندي','كمان','يعني','وبعدين','بعدين','عايز','عاوز','محتاج','محتاجين','هات','خلصان','خلص'];
-const KEEP_W = new Set(['ورق','ورقه','وصله','وش','ولاعه','وسط','وايت','واتر','وان','وجه','واقي']);
-function localParse(text){
-  const words0 = toLatin(text).replace(/[.؟?!:]/g, ' ').split(/\s+/).filter(Boolean)
-    .map(w => { const n = NUM_WORDS[norm(w)]; return n != null ? String(n) : w; });
-  const firstTokens = new Set([...S.catalog.values()].map(c => (c.key || norm(c.name)).split(' ')[0]));
-  const parts = [];
-  for (const chunk of words0.join(' ').split(/[\n،,؛;+]+/)){
-    let cur = [];
-    for (const w of chunk.trim().split(/\s+/).filter(Boolean)){
-      const nw = norm(w);
-      if (nw === 'و'){ if (cur.length) parts.push(cur.join(' ')); cur = []; continue; }
-      if (cur.length && w.startsWith('و') && nw.length > 2 && !KEEP_W.has(nw) && !firstTokens.has(nw)){
-        parts.push(cur.join(' ')); cur = [w.slice(1)]; continue;
-      }
-      cur.push(w);
-    }
-    if (cur.length) parts.push(cur.join(' '));
-  }
-  const out = []; let prev = null;
-  for (const p of parts){
-    let s = ' ' + p + ' ';
-    for (const f of FILLERS) s = s.split(' ' + f + ' ').join(' ');
-    s = cleanText(s);
-    if (!s) continue;
-    const toks = norm(s).split(' ');
-    if (prev && toks.every(x => COLOR_WORDS.includes(x) || x === 'لون' || x === 'اللون')){
-      const base = prev.name.split(' ');
-      while (base.length > 1 && COLOR_WORDS.includes(norm(base[base.length - 1]))) base.pop();
-      s.split(' ').filter(w => !['لون', 'اللون'].includes(norm(w))).forEach(cw => {
-        out.push({name: base.join(' ') + ' ' + (COLOR_FIX[norm(cw)] || cw), qty: null, note: ''});
-      });
-      continue;
-    }
-    s = s.split(' ').map(w => COLOR_FIX[norm(w)] || w).join(' ');
-    const known = S.catalog.get(catId(norm(s)));
-    const item = {name: known ? known.name : s, qty: null, note: ''};
-    out.push(item); prev = item;
-  }
-  return out;
-}
-function openBulk(){
-  const draft = [];
-  let rec = null, listening = false;
-  openModal(headHTML('قول النواقص مرة واحدة') + `
-    <p class="m-sub">${SR ? 'دوس «ابدأ الكلام» وقول كل اللي ناقص' : 'دوس على المايك اللي في كيبورد الموبايل وقول كل اللي ناقص'}، أو اكتبه. مثلاً: «كشكول 60 مسطر وقلم روتو ليكود أزرق وأسود وأستيكة».</p>
-    ${SR ? `<button type="button" class="btn mic-big" id="bMic">${ICON.mic}ابدأ الكلام</button>` : ''}
-    <label for="bText" class="vh">النواقص بالكلام</label>
-    <textarea class="inp area" id="bText" rows="3" placeholder="كشكول 60 مسطر وقلم روتو ليكود أزرق وأسود…"></textarea>
-    <div class="m-actions"><button type="button" class="btn primary" id="bParse">قسّمهم أصناف</button></div>
-    <p class="b-status" id="bStatus" role="status"></p>
-    <ul class="bulk" id="bList" hidden></ul>
-    <div class="m-actions" id="bAddRow" hidden><button type="button" class="btn primary" id="bAdd"></button></div>`,
-  card => {
-    const ta = card.querySelector('#bText'), parseBtn = card.querySelector('#bParse'), st = card.querySelector('#bStatus');
-    const listEl = card.querySelector('#bList'), addRow = card.querySelector('#bAddRow'), addBtn = card.querySelector('#bAdd');
-    const micBtn = card.querySelector('#bMic');
-    const status = (msg, err) => { st.textContent = msg || ''; st.classList.toggle('err', !!err); };
-    const drawList = () => {
-      listEl.hidden = !draft.length; addRow.hidden = !draft.length;
-      parseBtn.classList.toggle('primary', !draft.length);
-      parseBtn.textContent = draft.length ? 'قسّم الكلام الجديد وضيفه للقايمة' : 'قسّمهم أصناف';
-      addBtn.textContent = `ضيفهم للنواقص (${draft.length})`;
-      listEl.innerHTML = draft.map((d, i) => `<li data-bi="${i}">
-        <label class="vh" for="bn${i}">اسم الصنف</label><input class="inp" id="bn${i}" data-bn="${i}" type="text" value="${esc(d.name)}">
-        <button type="button" class="b-x" data-bx="${i}" aria-label="شيل «${esc(d.name)}»">${ICON.x}</button>
-        <div class="cseg" role="group" aria-label="المركز">${centerButtonsHTML(d.center, 'data-bc')}</div>
-        ${d.qty || d.note ? `<span class="b-note">${[d.qty ? 'العدد: ' + d.qty : '', d.note].filter(Boolean).map(esc).join(' · ')}</span>` : ''}</li>`).join('');
-    };
-    const mergeIn = items => {
-      for (const it of items){
-        const key = norm(it.name);
-        const same = draft.find(d => norm(d.name) === key);
-        if (same){ if (it.qty) same.qty = (same.qty || 0) + it.qty; if (it.note && !same.note) same.note = it.note; }
-        else { const p = S.catalog.get(catId(key)); draft.push({name: it.name, qty: it.qty || null, note: it.note || '', center: validCenter(p && p.center)}); }
-      }
-    };
-    const parse = () => {
-      const text = ta.value.trim();
-      if (!text){ status('قول أو اكتب النواقص الأول', true); return; }
-      const items = localParse(text);
-      if (!items.length){ status('ماعرفتش ألاقي أصناف في الكلام ده. جرب تاني.', true); return; }
-      mergeIn(items); ta.value = ''; drawList();
-      const unset = draft.filter(d => !d.center).length;
-      status(unset ? `فيه ${countItems(unset)} لسه مالهمش مركز، اختار مركزهم أو ضيفهم وحدده بعدين.` : 'راجعهم، وعدّل أي اسم قبل ما تضيف. تقدر تقول كمان وتقسّمهم تاني.');
-    };
-    listEl.addEventListener('input', e => {
-      const n = e.target.closest('[data-bn]'); if (n) draft[+n.dataset.bn].name = n.value;
-    });
-    listEl.addEventListener('click', e => {
-      const x = e.target.closest('[data-bx]');
-      if (x){ draft.splice(+x.dataset.bx, 1); drawList(); return; }
-      const cb = e.target.closest('[data-bc]');
-      if (cb){
-        const li = cb.closest('[data-bi]'); const d = draft[+li.dataset.bi];
-        d.center = cb.dataset.bc;
-        li.querySelectorAll('[data-bc]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.bc === d.center)));
-      }
-    });
-    parseBtn.addEventListener('click', parse);
-    const stopMic = () => { if (rec){ try { rec.stop(); } catch (e){} } };
-    if (micBtn) micBtn.addEventListener('click', () => {
-      if (listening){ stopMic(); return; }
-      const base = ta.value.trim();
-      rec = new SR(); rec.lang = 'ar-EG'; rec.continuous = false; rec.interimResults = true; rec.maxAlternatives = 1;
-      let heard = '';
-      rec.onresult = e => {
-        heard = '';
-        for (let i = 0; i < e.results.length; i++) heard += ' ' + e.results[i][0].transcript;
-        ta.value = (base + ' ' + heard).replace(/\s+/g, ' ').trim();
-      };
-      rec.onerror = e => {
-        const c = e && e.error;
-        status(c === 'not-allowed' || c === 'service-not-allowed' ? 'اسمح للأبلكيشن يستخدم المايك وجرب تاني.'
-          : c === 'no-speech' ? 'ماسمعتش حاجة. دوس وجرب تاني.'
-          : c === 'network' ? 'التعرف على الكلام محتاج نت. استخدم مايك الكيبورد.'
-          : 'المايك وقف. جرب تاني أو استخدم مايك الكيبورد.', true);
-      };
-      rec.onend = () => {
-        listening = false; rec = null;
-        if (!micBtn.isConnected) return;
-        micBtn.classList.remove('on'); micBtn.innerHTML = ICON.mic + 'ابدأ الكلام';
-        if (heard.trim()) parse();
-      };
-      try {
-        rec.start(); listening = true;
-        micBtn.classList.add('on'); micBtn.innerHTML = ICON.mic + 'بسمعك… دوس هنا لما تخلص';
-        status('');
-      } catch (e){ status('المايك مش متاح هنا. استخدم مايك الكيبورد.', true); }
-    });
-    addBtn.addEventListener('click', () => {
-      if (!S.db){ status('سجّل دخول بحساب جوجل الأول.', true); return; }
-      const items = draft.map(d => ({name: cleanText(d.name), qty: d.qty || null, note: d.note, center: d.center})).filter(d => d.name);
-      if (!items.length) return;
-      items.forEach(d => addItem(d.name, d.qty, d.note, true, d.center));
-      render();
-      closeModal();
-      toast(items.length === 1 ? `اتضاف «${items[0].name}» للنواقص` : `اتضاف ${countItems(items.length)} للنواقص`);
-    });
-    drawList();
-    if (!SR) setTimeout(() => ta.focus(), 30);
-    return () => stopMic();
-  });
-}
-$('#bulkBtn').addEventListener('click', openBulk);
 
 /* ---------- modal ---------- */
 let lastFocus = null, modalCleanup = null;
@@ -766,9 +620,7 @@ function pdfName(ts, target){
 function openSettings(){
   const ph = S.settings.phones || {};
   const phoneField = (id, label, val) => `<div><label class="lbl" for="${id}">${label}</label><input class="inp" id="${id}" type="tel" inputmode="tel" dir="ltr" style="text-align:right" placeholder="01xxxxxxxxx" value="${esc(val || '')}"></div>`;
-  const who = S.user ? (S.user.email || S.user.displayName || '') : '';
   openModal(headHTML('الإعدادات') + `
-    ${S.user ? `<div class="acct"><span>داخل بـ <b>${esc(who)}</b></span><button type="button" class="btn small" id="stOut">خروج</button></div>` : ''}
     <div><label class="lbl" for="stShop">اسم المكتبة</label><input class="inp" id="stShop" type="text" placeholder="مثلاً: مكتبة النور" value="${esc(S.settings.shopName || '')}">
       <p class="hint">بيظهر في أول كشف النواقص.</p></div>
     ${phoneField('stPhone', 'رقم واتساب المخزن (للكشف كله)', S.settings.phone)}
@@ -777,37 +629,35 @@ function openSettings(){
     <div class="m-actions"><button type="button" class="btn primary" id="stSave">حفظ</button></div>
     <div><span class="lbl">البيانات</span>
       <div class="m-actions"><button type="button" class="btn" id="stExport">نسخة احتياطية</button><button type="button" class="btn" id="stImport">استيراد ملف</button></div>
-      <p class="hint">«استيراد ملف» بيضيف الأصناف والنواقص من ملف نسخة احتياطية أو من ملف النقل من البرنامج القديم.</p>
+      <p class="hint">البيانات محفوظة على الموبايل ده بس. اعمل «نسخة احتياطية» كل فترة وابعتها لنفسك على واتساب أو Drive، عشان لو الموبايل اتغير أو اتمسح ترجعها بـ«استيراد ملف».</p>
       <input type="file" id="stFile" accept=".json,application/json" hidden></div>`,
   card => {
     card.querySelector('#stSave').addEventListener('click', () => {
-      if (!S.db){ toast('سجّل دخول بحساب جوجل الأول.'); return; }
+      if (!S.db){ toast('لسه بفتح البيانات، ثانية واحدة وجرب تاني.'); return; }
       const phones = {}; CENTERS.forEach(c => { phones[c.id] = cleanText(card.querySelector('#stPh_' + c.id).value); });
       saveSettings({shopName: cleanText(card.querySelector('#stShop').value), phone: cleanText(card.querySelector('#stPhone').value), phones});
       closeModal(); toast('اتحفظت الإعدادات');
     });
-    const out = card.querySelector('#stOut');
-    if (out) out.addEventListener('click', () => { closeModal(); if (STORE) STORE.signOut(); });
     card.querySelector('#stExport').addEventListener('click', async () => {
       const blob = new Blob([JSON.stringify(exportData(), null, 1)], {type: 'application/json'});
       const d = new Date();
-      await saveFile(blob, `nawaqes-backup-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.json`, 'application/json', false);
-      toast('اتحفظت النسخة الاحتياطية في التنزيلات');
+      const r = await saveFile(blob, `nawaqes-backup-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.json`, 'application/json', true);
+      if (r === 'saved') toast('اتحفظت النسخة الاحتياطية في التنزيلات');
     });
     const fileEl = card.querySelector('#stFile');
     card.querySelector('#stImport').addEventListener('click', () => fileEl.click());
-    fileEl.addEventListener('change', async () => {
-      const f = fileEl.files && fileEl.files[0]; if (!f) return;
-      if (!S.db){ toast('سجّل دخول بحساب جوجل الأول.'); return; }
-      try {
-        const n = await importData(JSON.parse(await f.text()));
-        closeModal();
-        toast(`اتنقل ${countItems(n.items)} للنواقص و${countItems(n.catalog)} لقاعدة الأصناف`);
-      } catch (e){
-        toast(e && e.message === 'bad-file' ? 'الملف ده مش ملف نواقص.' : 'ماقدرتش أقرا الملف. جرب تاني.');
-      }
-    });
+    fileEl.addEventListener('change', () => importFromInput(fileEl, true));
   });
+}
+async function importFromInput(input, inModal){
+  const f = input.files && input.files[0]; if (!f) return;
+  try {
+    const n = await importData(JSON.parse(await f.text()));
+    if (inModal) closeModal();
+    toast(`اتنقل ${countItems(n.items)} للنواقص و${countItems(n.catalog)} لقاعدة الأصناف`);
+  } catch (e){
+    toast(e && e.message === 'bad-file' ? 'الملف ده مش ملف نواقص.' : 'ماقدرتش أقرا الملف. جرب تاني.');
+  } finally { input.value = ''; }
 }
 function exportData(){
   const strip = o => { const c = Object.assign({}, o); return c; };
@@ -1030,7 +880,7 @@ function openNewProduct(){
       const name = cleanText(nameEl.value);
       if (!name){ st.textContent = 'اكتب اسم الصنف'; st.classList.add('err'); nameEl.focus(); return; }
       if (!center){ st.textContent = 'اختار المركز'; st.classList.add('err'); return; }
-      if (!S.db){ st.textContent = 'سجّل دخول بحساب جوجل الأول.'; st.classList.add('err'); return; }
+      if (!S.db){ st.textContent = 'لسه بفتح البيانات، ثانية واحدة وجرب تاني.'; st.classList.add('err'); return; }
       const key = norm(name), cid = catId(key);
       const existed = S.catalog.has(cid);
       setProductCenter(S.catalog.get(cid) || {id: cid, name, key, uses: 0, lastAt: Date.now()}, center);
@@ -1102,47 +952,7 @@ function subErr(e){
   clearTimeout(loadTimer); render();
 }
 
-let STORE = null, UNSUBS = [];
-function gate(kind, extra){
-  const g = $('#gate'), b = $('#gateBody');
-  if (!kind){ g.hidden = true; return; }
-  g.hidden = false;
-  if (kind === 'loading'){ b.innerHTML = '<p>بيفتح…</p>'; return; }
-  if (kind === 'error'){ b.innerHTML = `<p>${esc(extra || 'حصلت مشكلة وأنا بفتح الأبلكيشن. اتأكد من النت وافتحه تاني.')}</p><button type="button" class="btn primary" id="gRetry">جرّب تاني</button>`; $('#gRetry').onclick = () => location.reload(); return; }
-  if (kind === 'signin'){
-    b.innerHTML = `<p>سجّل دخول بحساب جوجل عشان النواقص تتحفظ وتظهر على الموبايل والكمبيوتر. استخدم نفس الحساب على كل الأجهزة.</p>
-      <button type="button" class="btn primary" id="gIn" style="height:54px;font-size:17px">ادخل بحساب جوجل</button>
-      <p class="b-status" id="gSt" role="status"></p>`;
-    $('#gIn').onclick = async () => {
-      const st = $('#gSt'); st.classList.remove('err'); st.textContent = 'بيفتح جوجل…';
-      try { await STORE.signIn(); }
-      catch (e){
-        const c = e && e.code;
-        st.classList.add('err');
-        st.textContent = c === 'auth/unauthorized-domain' ? 'الدومين ده مش متضاف في Firebase. ضيف ' + location.hostname + ' في Authentication ← Settings ← Authorized domains.'
-          : c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request' ? 'اتقفلت شاشة جوجل قبل ما تختار الحساب. جرّب تاني.'
-          : c === 'auth/operation-not-allowed' ? 'الدخول بجوجل مش متفعل في Firebase. فعّله من Authentication ← Sign-in method.'
-          : c === 'auth/configuration-not-found' ? 'خدمة Authentication لسه مش متفعلة في Firebase. افتح Authentication ودوس Get started، وبعدين فعّل Google.'
-          : c === 'auth/network-request-failed' ? 'مفيش نت. اتأكد من النت وجرّب تاني.'
-          : 'ماقدرتش أدخل. اتأكد من النت وجرّب تاني.' + (c ? ' (' + c + ')' : '');
-      }
-    };
-    return;
-  }
-  if (kind === 'setup'){
-    b.innerHTML = `<p>الأبلكيشن لسه مش متوصل بقاعدة البيانات (Firebase). الصق هنا إعدادات الويب اللي Firebase إداهالك (الجزء اللي فيه apiKey).</p>
-      <label for="gCfg" class="vh">إعدادات Firebase</label>
-      <textarea class="inp" id="gCfg" placeholder='const firebaseConfig = { apiKey: "...", authDomain: "...", projectId: "...", appId: "..." };'></textarea>
-      <button type="button" class="btn primary" id="gSave">وصّل</button>
-      <p class="b-status" id="gSt" role="status"></p>
-      <p class="hint">الأحسن تبعت الإعدادات دي لـClaude يحطها في الأبلكيشن نفسه، عشان كل الأجهزة تشتغل من غير ما تلزقها على كل جهاز.</p>`;
-    $('#gSave').onclick = () => {
-      const cfg = parseConfig($('#gCfg').value);
-      if (!cfg){ const st = $('#gSt'); st.classList.add('err'); st.textContent = 'مش لاقي apiKey و projectId و appId في اللي لزقته.'; return; }
-      saveLocalConfig(cfg); location.reload();
-    };
-  }
-}
+let UNSUBS = [];
 function stopData(){
   UNSUBS.forEach(u => { try { u(); } catch (e){} });
   UNSUBS = [];
@@ -1181,16 +991,10 @@ $('#installBtn').addEventListener('click', async () => {
   installEvt = null; $('#installBtn').hidden = true;
 });
 async function boot(){
-  render();
-  gate('loading');
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
-  try { STORE = await initStore(); }
-  catch (e){ gate('error', 'ماقدرتش أوصل لـFirebase. اتأكد من النت وافتح الأبلكيشن تاني.'); return; }
-  if (!STORE.configured){ gate('setup'); return; }
-  STORE.onAuth(user => {
-    if (!user){ S.user = null; stopData(); render(); gate('signin'); return; }
-    S.user = user; gate(null); startData(STORE.db(user.uid));
-  });
+  $('#importFile').addEventListener('change', e => importFromInput(e.target, false));
+  document.addEventListener('click', e => { if (e.target.closest('[data-import]')) $('#importFile').click(); });
+  startData(openLocalDb());
 }
 boot();
 })();

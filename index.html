@@ -73,7 +73,7 @@ h1{font-family:var(--f-display);font-weight:700;font-size:46px;line-height:1.15;
 .addbar .wrap{padding-block:12px}
 fieldset{border:0;margin:0;padding:0;min-width:0}
 fieldset[disabled]{opacity:.55}
-.add-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:stretch}
+.add-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:stretch}
 .add-row .icon-btn{width:48px;height:48px;color:var(--pen)}
 .name-field{position:relative;min-width:0}
 .inp{width:100%;height:48px;border:1.5px solid var(--line);border-radius:10px;background:var(--sheet);color:var(--ink);font-weight:500;font-size:17px;padding:0 14px}
@@ -286,19 +286,6 @@ fieldset[disabled]{opacity:.55}
 
 /* App shell */
 .top-actions{display:flex;gap:8px;align-items:center}
-.gate{position:fixed;inset:0;z-index:40;background:var(--paper);display:grid;place-items:center;overflow:auto;padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-.gate-card{width:100%;max-width:420px;display:flex;flex-direction:column;gap:14px;align-items:stretch;text-align:right}
-.gate-card img{width:76px;height:76px;border-radius:18px;align-self:flex-start}
-.gate-title{font-family:var(--f-display);font-weight:700;font-size:44px;line-height:1.15;color:var(--pen);margin:0}
-.gate-card p{margin:0;color:var(--ink-2);font-size:16px}
-.gate-card .inp{font-size:14px}
-.gate-card textarea.inp{min-height:150px;direction:ltr;text-align:left;font-family:ui-monospace,Menlo,Consolas,monospace}
-.mic-big{height:56px;font-size:17px;border-color:var(--pen);color:var(--pen)}
-.mic-big svg{width:22px;height:22px}
-.mic-big.on{background:var(--margin);border-color:var(--margin);color:#fff}
-.mic-big.on svg{color:#fff}
-.acct{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;background:var(--raised);border-radius:10px;padding:10px 12px;font-size:14px}
-.acct b{overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -336,9 +323,6 @@ fieldset[disabled]{opacity:.55}
               <ul class="suggest" id="suggest" role="listbox" aria-label="أصناف كتبتها قبل كده" hidden></ul>
             </div>
             <button type="submit" class="btn primary" id="addBtn">ضيف</button>
-            <button type="button" class="icon-btn" id="bulkBtn" aria-label="قول كذا صنف مرة واحدة" title="قول كذا صنف مرة واحدة">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
-            </button>
           </div>
           <div class="note-row">
             <button type="button" class="link" id="noteToggle" aria-expanded="false" aria-controls="noteInput">+ ملاحظة على الصنف</button>
@@ -387,13 +371,7 @@ fieldset[disabled]{opacity:.55}
     <div class="modal-card" id="modalCard" role="dialog" aria-modal="true" aria-labelledby="modalTitle"></div>
   </div>
 </div>
-<div class="gate" id="gate">
-  <div class="gate-card">
-    <img src="icons/icon-192.png" alt="" width="76" height="76">
-    <h1 class="gate-title">النواقص</h1>
-    <div id="gateBody" style="display:flex;flex-direction:column;gap:12px"><p>بيفتح…</p></div>
-  </div>
-</div>
+<input type="file" id="importFile" accept=".json,application/json" hidden>
 <script type="module" src="app.js"></script>
 </body>
 </html>

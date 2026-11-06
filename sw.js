@@ -1,12 +1,12 @@
 // Service worker: lets the app open without internet and install on the phone.
 // Own files: network first (so updates pushed to GitHub show up right away), cache as fallback.
-// Fonts and the Firebase library: cache first, refreshed in the background.
-const CACHE = 'nawaqes-v1';
+// Fonts: cache first, refreshed in the background.
+const CACHE = 'nawaqes-v2';
 const SHELL = [
-  './', './index.html', './app.js', './store.js', './firebase-config.js',
+  './', './index.html', './app.js', './store.js',
   './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'
 ];
-const CDN_HOSTS = ['www.gstatic.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
+const CDN_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -37,8 +37,7 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  const isFirebaseLib = url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/');
-  if (isFirebaseLib || (CDN_HOSTS.includes(url.hostname) && url.hostname !== 'www.gstatic.com')) {
+  if (CDN_HOSTS.includes(url.hostname)) {
     event.respondWith(
       caches.match(req).then(hit => {
         const net = fetch(req).then(res => {

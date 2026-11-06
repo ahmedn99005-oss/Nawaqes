@@ -1,102 +1,73 @@
-// Firebase connection: Google sign-in + Firestore with offline cache.
-// The rest of the app talks to the small `db` object returned by `store.db(uid)`.
-import { firebaseConfig as fileConfig } from './firebase-config.js';
+// Local storage for the app: everything stays on this device, no server, works offline.
+// Keeps the same small interface the app already uses (collection/doc, set/update/delete, onSnapshot).
+const KEY = 'nawaqes.data.v1';
+const COLLECTIONS = ['items', 'catalog', 'settings'];
 
-const V = '10.12.2';
-const LOCAL_KEY = 'nawaqes.firebaseConfig';
-
-export function readLocalConfig() {
-  try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || 'null'); } catch (e) { return null; }
+function emptyData() {
+  const d = {};
+  COLLECTIONS.forEach(c => { d[c] = {}; });
+  return d;
 }
-export function saveLocalConfig(cfg) {
-  try { localStorage.setItem(LOCAL_KEY, JSON.stringify(cfg)); return true; } catch (e) { return false; }
-}
-export function clearLocalConfig() {
-  try { localStorage.removeItem(LOCAL_KEY); } catch (e) {}
-}
-
-// Accepts the snippet Firebase shows ("const firebaseConfig = { apiKey: "...", ... }") or plain JSON.
-export function parseConfig(text) {
-  const out = {};
-  const re = /["']?(apiKey|authDomain|projectId|storageBucket|messagingSenderId|appId|measurementId)["']?\s*:\s*["']([^"']+)["']/g;
-  let m;
-  while ((m = re.exec(String(text || '')))) out[m[1]] = m[2];
-  return out.apiKey && out.projectId && out.appId ? out : null;
-}
-
-export async function initStore() {
-  const config = (fileConfig && fileConfig.apiKey) ? fileConfig : readLocalConfig();
-  if (!config || !config.apiKey) return { configured: false };
-
-  const [appMod, authMod, fsMod] = await Promise.all([
-    import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`),
-    import(`https://www.gstatic.com/firebasejs/${V}/firebase-auth.js`),
-    import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`)
-  ]);
-  const app = appMod.initializeApp(config);
-  const auth = authMod.getAuth(app);
-  auth.languageCode = 'ar';
-  let fs;
+function load() {
   try {
-    fs = fsMod.initializeFirestore(app, {
-      localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() })
-    });
-  } catch (e) {
-    fs = fsMod.getFirestore(app);
-  }
+    const d = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (d && typeof d === 'object') { COLLECTIONS.forEach(c => { if (!d[c] || typeof d[c] !== 'object') d[c] = {}; }); return d; }
+  } catch (e) {}
+  return emptyData();
+}
+const clone = v => JSON.parse(JSON.stringify(v));
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 
-  const wrapDoc = s => ({ id: s.id, exists: s.exists(), data: () => s.data(), metadata: s.metadata });
+export function openLocalDb() {
+  let data = load();
+  const listeners = new Set();
+  const meta = { fromCache: false, hasPendingWrites: false };
+  let pending = false;
 
-  function makeDb(uid) {
-    const root = ['shops', uid];
-    const docRef = (...segs) => {
-      const ref = fsMod.doc(fs, ...root, ...segs);
-      return {
-        id: ref.id,
-        set: body => fsMod.setDoc(ref, body),
-        update: body => fsMod.updateDoc(ref, body),
-        delete: () => fsMod.deleteDoc(ref),
-        onSnapshot: (next, err) => fsMod.onSnapshot(ref, { includeMetadataChanges: true }, s => next(wrapDoc(s)), err)
-      };
-    };
-    return {
-      doc: path => docRef(...path.split('/')),
-      collection: name => ({
-        doc: id => docRef(name, id || fsMod.doc(fsMod.collection(fs, ...root, name)).id),
-        onSnapshot: (next, err) => fsMod.onSnapshot(
-          fsMod.collection(fs, ...root, name), { includeMetadataChanges: true },
-          s => next({ docs: s.docs.map(wrapDoc), size: s.size, empty: s.empty, metadata: s.metadata }), err)
-      }),
-      // ops: [{path: 'items/abc', data: {...}}] written with set(), 400 per batch
-      batchSet: async ops => {
-        for (let i = 0; i < ops.length; i += 400) {
-          const b = fsMod.writeBatch(fs);
-          ops.slice(i, i + 400).forEach(o => b.set(fsMod.doc(fs, ...root, ...o.path.split('/')), o.data));
-          await b.commit();
-        }
-      }
-    };
-  }
+  const save = () => {
+    try { localStorage.setItem(KEY, JSON.stringify(data)); }
+    catch (e) { const err = new Error('storage-full'); err.code = 'resource-exhausted'; throw err; }
+  };
+  const emit = () => {
+    if (pending) return;
+    pending = true;
+    setTimeout(() => { pending = false; listeners.forEach(f => f()); }, 0);
+  };
+  // another tab or window of the app changed the data
+  window.addEventListener('storage', e => { if (e.key === KEY) { data = load(); emit(); } });
+
+  // ask the browser not to clear the data when the phone is low on space
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
+  const snapDoc = (col, id) => {
+    const d = data[col] && data[col][id];
+    return { id, exists: !!d, data: () => (d ? clone(d) : undefined), metadata: meta };
+  };
+  const watch = fire => { listeners.add(fire); setTimeout(fire, 0); return () => listeners.delete(fire); };
+  const docRef = (col, id) => ({
+    id,
+    set: body => { data[col][id] = clone(body); save(); emit(); return Promise.resolve(); },
+    update: body => {
+      if (!data[col][id]) { const e = new Error('not-found'); e.code = 'not-found'; return Promise.reject(e); }
+      Object.assign(data[col][id], clone(body)); save(); emit(); return Promise.resolve();
+    },
+    delete: () => { delete data[col][id]; save(); emit(); return Promise.resolve(); },
+    onSnapshot: next => watch(() => next(snapDoc(col, id)))
+  });
 
   return {
-    configured: true,
-    projectId: config.projectId,
-    onAuth: cb => authMod.onAuthStateChanged(auth, cb),
-    signIn: async () => {
-      const provider = new authMod.GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
-      try {
-        await authMod.signInWithPopup(auth, provider);
-      } catch (e) {
-        const code = e && e.code;
-        if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment' || code === 'auth/web-storage-unsupported') {
-          await authMod.signInWithRedirect(auth, provider);
-        } else {
-          throw e;
-        }
-      }
-    },
-    signOut: () => authMod.signOut(auth),
-    db: makeDb
+    doc: path => { const [col, id] = path.split('/'); return docRef(col, id); },
+    collection: col => ({
+      doc: id => docRef(col, id || newId()),
+      onSnapshot: next => watch(() => {
+        const docs = Object.keys(data[col] || {}).map(id => snapDoc(col, id));
+        next({ docs, size: docs.length, empty: !docs.length, metadata: meta });
+      })
+    }),
+    // ops: [{path: 'items/abc', data: {...}}]
+    batchSet: async ops => {
+      ops.forEach(o => { const [col, id] = o.path.split('/'); if (data[col]) data[col][id] = clone(o.data); });
+      save(); emit();
+    }
   };
 }
