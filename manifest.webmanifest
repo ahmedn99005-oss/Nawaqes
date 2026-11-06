@@ -1,0 +1,18 @@
+{
+  "name": "نواقص المكتبة",
+  "short_name": "النواقص",
+  "description": "كشف نواقص المكتبة بالمراكز: النصرية والممر والشقة.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7F9FD",
+  "theme_color": "#2343B5",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
