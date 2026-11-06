@@ -1122,7 +1122,9 @@ function gate(kind, extra){
         st.textContent = c === 'auth/unauthorized-domain' ? 'الدومين ده مش متضاف في Firebase. ضيف ' + location.hostname + ' في Authentication ← Settings ← Authorized domains.'
           : c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request' ? 'اتقفلت شاشة جوجل قبل ما تختار الحساب. جرّب تاني.'
           : c === 'auth/operation-not-allowed' ? 'الدخول بجوجل مش متفعل في Firebase. فعّله من Authentication ← Sign-in method.'
-          : 'ماقدرتش أدخل. اتأكد من النت وجرّب تاني.';
+          : c === 'auth/configuration-not-found' ? 'خدمة Authentication لسه مش متفعلة في Firebase. افتح Authentication ودوس Get started، وبعدين فعّل Google.'
+          : c === 'auth/network-request-failed' ? 'مفيش نت. اتأكد من النت وجرّب تاني.'
+          : 'ماقدرتش أدخل. اتأكد من النت وجرّب تاني.' + (c ? ' (' + c + ')' : '');
       }
     };
     return;
